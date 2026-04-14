@@ -91,6 +91,30 @@ async function registrarLogRemoto(usuario) {
   }
 }
 
+async function registrarLogLoginRemoto(usuario) {
+  const usuarioVisibleParcial = ocultarUsuarioParcialmente(usuario);
+  const payload = {
+    evento: "USER_LOGIN",
+    usuarioVisibleParcial: usuarioVisibleParcial,
+  };
+
+  try {
+    const response = await fetch(BACKEND_REGISTER_LOG_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      console.warn(`No se pudo registrar el log de login. Estado: ${response.status} ${response.statusText}`);
+    } else {
+      console.log("Log de login enviado correctamente");
+    }
+  } catch (error) {
+    console.warn("No se pudo registrar el log de login:", error);
+  }
+}
+
 async function initializeRegister() {
   const usuarioInput = document.getElementById("reg-usuario");
   const passwordInput = document.getElementById("reg-password");
@@ -167,6 +191,7 @@ async function initializeLogin() {
     try {
       await validarUsuarioLocal(usuario, contrasenaMaestra);
       guardarSesionLocal(usuario, contrasenaMaestra);
+      registrarLogLoginRemoto(usuario);
       window.location.href = "index.html";
     } catch (error) {
       setMessage(messageEl, error.message, "error");
