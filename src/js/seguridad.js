@@ -1,177 +1,141 @@
-// ==================== CONSTANTES ====================
-const STORAGE_KEY = "DJPJM_boveda";
-const ESTADO_KEY = "DJPJM_estado";
-const BACKEND_LOGIN_LOG_URL = "https://backend-demo-gestor-de-contrase-as.onrender.com/api/auth/login";
+// Variable global en memoria (inicia vacia hasta que el usuario se loguee)
+let contrasenaMaestra = null;
 
-// ==================== CIFRADO Y DESCIFRADO ====================
-function guardarYcifrarBoveda(contrasenas) {
-  const master = sessionStorage.getItem("DJPJM_master");
-  if (!master) return;
-
-  const json = JSON.stringify(contrasenas);
-  const cifrado = CryptoJS.AES.encrypt(json, master).toString();
-  localStorage.setItem(STORAGE_KEY, cifrado);
+function obtenerClaveBoveda() {
+  const usuarioActual = sessionStorage.getItem("DJPJM_usuario");
+  return usuarioActual ? `Boveda_DJPJM_${usuarioActual}` : "Boveda_DJPJM";
 }
 
-function descifrarBoveda(master) {
-  try {
-    const cifrado = localStorage.getItem(STORAGE_KEY);
-    if (!cifrado) return null;
+// --- FUNCIONES DE ACCESO PARA EL FRONTEND ---
 
-    const bytes = CryptoJS.AES.decrypt(cifrado, master);
-    const json = bytes.toString(CryptoJS.enc.Utf8);
-    return JSON.parse(json);
+// 1. El Front usa esto para saber que pantalla mostrar (Login o Registro)
+function verificarEstadoBoveda() {
+  const datosCifrados = localStorage.getItem(obtenerClaveBoveda());
+  // Si hay datos devuelve "EXISTENTE", si no, devuelve "NUEVA"
+  return datosCifrados ? "EXISTENTE" : "NUEVA";
+}
+
+// 2. El Front usa esto cuando es la PRIMERA VEZ y el usuario crea su llave
+function registrarContrasenaMaestra(nuevaContrasena) {
+  contrasenaMaestra = nuevaContrasena;
+  // Guardamos una boveda vacia cifrada para que ya exista en el sistema
+  guardarYcifrarBoveda([]);
+  return true;
+}
+
+// 3. El Front usa esto cuando el usuario INTENTA ENTRAR
+function intentarIniciarSesion(passwordIntento) {
+  const datosCifrados = localStorage.getItem(obtenerClaveBoveda());
+
+  if (!datosCifrados) return false;
+
+  try {
+    // Intentamos descifrar con la contrasena que ha escrito en el formulario
+    const bytes = CryptoJS.AES.decrypt(datosCifrados, passwordIntento);
+    const datosDescifradosTexto = bytes.toString(CryptoJS.enc.Utf8);
+
+    // Si la contrasena es mala, esto fallara y saltara al catch
+    if (!datosDescifradosTexto) throw new Error("Llave incorrecta");
+
+    // ¡EXITO! La contrasena es correcta. La guardamos en memoria para esta sesion.
+    contrasenaMaestra = passwordIntento;
+
+    // Devolvemos el array de contrasenas para que el Front pinte las tarjetas
+    return JSON.parse(datosDescifradosTexto);
   } catch (error) {
-    console.error("Error al descifrar:", error);
+    // Fallo de seguridad: Devolvemos false para que el Front ponga el input en rojo
     return false;
   }
 }
 
-// ==================== GESTIÓN DE ESTADO ====================
-function registrarContrasenaMaestra(master) {
-  // Guardar un hash de la master para verificar que existe
-  const hash = CryptoJS.SHA256(master).toString();
-  localStorage.setItem(ESTADO_KEY, hash);
-  guardarYcifrarBoveda([]);
+// 2. Funcion para GUARDAR y CIFRAR
+function guardarYcifrarBoveda(arrayContrasenas) {
+  // Convertimos el array a texto
+  const datosEnJSON = JSON.stringify(arrayContrasenas);
+
+  // Ciframos con AES
+  const datosCifrados = CryptoJS.AES.encrypt(datosEnJSON, contrasenaMaestra).toString();
+
+  // Guardamos en el navegador
+  localStorage.setItem(obtenerClaveBoveda(), datosCifrados);
+  console.log("Boveda guardada y cifrada.");
 }
 
-function verificarEstadoBoveda() {
-  const estado = localStorage.getItem(ESTADO_KEY);
-  return estado ? "EXISTENTE" : "NUEVA";
+// 3. Funcion para CARGAR y DESCIFRAR al arrancar
+function cargarYdescifrarBoveda() {
+  const datosCifrados = localStorage.getItem(obtenerClaveBoveda());
+
+  if (!datosCifrados) {
+    return []; // Si no hay nada guardado, devolvemos un array vacio
+  }
+
+  try {
+    // Desciframos
+    const bytes = CryptoJS.AES.decrypt(datosCifrados, contrasenaMaestra);
+    const datosDescifradosTexto = bytes.toString(CryptoJS.enc.Utf8);
+
+    if (!datosDescifradosTexto) throw new Error("Contrasena incorrecta");
+
+    console.log("Boveda cargada con exito.");
+    return JSON.parse(datosDescifradosTexto); // Devolvemos el array recuperado
+  } catch (error) {
+    alert("Contrasena Maestra incorrecta. No se pueden mostrar las contrasenas.");
+    return [];
+  }
 }
 
-function intentarIniciarSesion(master) {
-  const datos = descifrarBoveda(master);
-  return datos;
-}
-
-// ==================== EXPORTAR/IMPORTAR ====================
+// 4. Funcion para EXPORTAR el archivo .djpjm
 function exportarArchivoDJPJM() {
-  const master = sessionStorage.getItem("DJPJM_master");
-  const usuario = sessionStorage.getItem("DJPJM_usuario");
-  
-  if (!master || !usuario) {
-    alert("Error: sesión no válida");
+  const datosCifrados = localStorage.getItem(obtenerClaveBoveda());
+
+  if (!datosCifrados) {
+    alert("La boveda esta vacia.");
     return;
   }
 
-  try {
-    const cifrado = localStorage.getItem(STORAGE_KEY);
-    if (!cifrado) {
-      alert("La bóveda está vacía");
-      return;
-    }
+  const blob = new Blob([datosCifrados], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
 
-    const exportData = {
-      version: "1.0",
-      usuario,
-      timestamp: new Date().toISOString(),
-      boveda: cifrado
-    };
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = "Mis_Contrasenas.djpjm";
 
-    const json = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `boveda_${usuario}_${Date.now()}.djpjm`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    console.log("Bóveda exportada correctamente");
-    mostrarMensaje("Bóveda exportada correctamente", "success");
-  } catch (error) {
-    console.error("Error al exportar:", error);
-    alert("Error al exportar la bóveda");
-  }
+  document.body.appendChild(enlace);
+  enlace.click();
+  document.body.removeChild(enlace);
+  URL.revokeObjectURL(url);
 }
 
+// 5. Funcion para IMPORTAR un archivo .djpjm
 function importarArchivoDJPJM(evento) {
-  const file = evento.target.files[0];
-  if (!file) return;
+  const archivo = evento.target.files[0];
+  if (!archivo) return; // Si el usuario cancela, no hacemos nada
 
-  const reader = new FileReader();
-  reader.onload = function (e) {
-    try {
-      const contenido = JSON.parse(e.target.result);
-      
-      if (!contenido.boveda || !contenido.version) {
-        throw new Error("Formato de archivo inválido");
-      }
+  const lector = new FileReader();
 
-      // Verificar que el usuario coincida
-      const usuarioActual = sessionStorage.getItem("DJPJM_usuario");
-      if (contenido.usuario !== usuarioActual) {
-        throw new Error(`Este archivo pertenece a otro usuario: ${contenido.usuario}`);
-      }
+  lector.onload = function (e) {
+    const contenidoCifrado = e.target.result;
 
-      // Restaurar en localStorage
-      localStorage.setItem(STORAGE_KEY, contenido.boveda);
-      
-      // Recargar la bóveda
-      const master = sessionStorage.getItem("DJPJM_master");
-      const datos = intentarIniciarSesion(master);
-      
-      if (datos === false) {
-        throw new Error("No se ha podido importar con la contraseña maestra actual");
-      }
+    // Sobrescribimos la memoria del navegador con el archivo nuevo
+    localStorage.setItem(obtenerClaveBoveda(), contenidoCifrado);
 
-      contrasenas = datos || [];
-      renderVault();
-      mostrarMensaje("Bóveda importada correctamente", "success");
-    } catch (error) {
-      console.error("Error al importar:", error);
-      alert("Error al importar: " + error.message);
-      mostrarMensaje("Error al importar la bóveda", "error");
-    }
-  };
-  reader.readAsText(file);
-}
-
-// ==================== EVENTOS Y LOGS ====================
-function mostrarMensaje(mensaje, tipo = "info") {
-  const elemento = document.getElementById("vault-message");
-  if (elemento) {
-    elemento.textContent = mensaje;
-    elemento.className = `vault-message ${tipo}`;
-    
-    // Limpiar el mensaje después de 5 segundos
-    setTimeout(() => {
-      elemento.textContent = "";
-      elemento.className = "vault-message";
-    }, 5000);
-  }
-}
-
-async function registrarLogRemoto(usuario, evento) {
-  const usuarioVisibleParcial = ocultarUsuarioParcialmente(usuario);
-  const payload = {
-    evento,
-    usuarioVisibleParcial,
-    timestamp: new Date().toISOString()
+    alert("Boveda importada con exito. La pagina se recargara para aplicar los cambios.");
+    // Recargamos la pagina para que el motor pida la contrasena maestra de nuevo
+    window.location.reload();
   };
 
-  try {
-    const response = await fetch(BACKEND_LOGIN_LOG_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      console.warn(`No se pudo registrar el log remoto. Estado: ${response.status}`);
-    } else {
-      console.log("Log remoto enviado correctamente");
-    }
-  } catch (error) {
-    console.warn("No se pudo registrar el log remoto:", error);
-  }
+  // Leemos el archivo como texto plano
+  lector.readAsText(archivo);
 }
 
-function ocultarUsuarioParcialmente(usuario) {
-  const len = usuario.length;
-  if (len <= 2) return "**";
-  return usuario[0] + "*".repeat(len - 2) + usuario[len - 1];
+// 6. Funcion para DESTRUIR la boveda (Factory Reset)
+function destruirBoveda() {
+  // Borramos el archivo fisico de la memoria del navegador
+  localStorage.removeItem(obtenerClaveBoveda());
+
+  // Limpiamos la variable de sesion por si acaso
+  contrasenaMaestra = null;
+
+  // Recargamos la pagina para que la app vuelva al estado "NUEVA"
+  window.location.reload();
 }
