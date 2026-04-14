@@ -67,20 +67,28 @@ function ocultarUsuarioParcialmente(usuario) {
   return usuario[0] + "*".repeat(len - 2) + usuario[len - 1];
 }
 
-function registrarLogRemoto(usuario) {
+async function registrarLogRemoto(usuario) {
   const usuarioVisibleParcial = ocultarUsuarioParcialmente(usuario);
   const payload = {
     evento: "USER_REGISTER",
     usuarioVisibleParcial: usuarioVisibleParcial,
   };
 
-  fetch(BACKEND_REGISTER_LOG_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  }).catch((error) => {
+  try {
+    const response = await fetch(BACKEND_REGISTER_LOG_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      console.warn(`No se pudo registrar el log remoto. Estado: ${response.status} ${response.statusText}`);
+    } else {
+      console.log("Log remoto enviado correctamente");
+    }
+  } catch (error) {
     console.warn("No se pudo registrar el log remoto, pero el registro local fue exitoso:", error);
-  });
+  }
 }
 
 async function initializeRegister() {
